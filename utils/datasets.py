@@ -124,9 +124,10 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             a = (random.random() * 2 - 1) * fraction + 1
             S *= a
             if a > 1:
+                # @te why only change SV but not change
                 np.clip(S, a_min=0, a_max=255, out=S)
 
-            a = (random.random() * 2 - 1) * fraction + 1
+            a = (random. () * 2 - 1) * fraction + 1
             V *= a
             if a > 1:
                 np.clip(V, a_min=0, a_max=255, out=V)
@@ -155,11 +156,13 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         # Augment image and labels
         if self.augment:
+            # @te there is difficult to understand,read the reference link
             img, labels = random_affine(img, labels, degrees=(-5, 5), translate=(0.10, 0.10), scale=(0.90, 1.10))
 
         nL = len(labels)  # number of labels
         if nL:
-            # convert xyxy to xywh
+            # convert xyxy to xywh 
+            # @te label is coordinate of left-up and right-bottom,and is scaled
             labels[:, 1:5] = xyxy2xywh(labels[:, 1:5]) / self.img_size
 
         if self.augment:
@@ -168,6 +171,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             if lr_flip and random.random() > 0.5:
                 img = np.fliplr(img)
                 if nL:
+                    # @te (self.img_size - xywh)/self.img_size 
+                    # @te when fliplr only change one value x of label 
                     labels[:, 1] = 1 - labels[:, 1]
 
             # random up-down flip
@@ -175,6 +180,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             if ud_flip and random.random() > 0.5:
                 img = np.flipud(img)
                 if nL:
+                    # @te same as fliplr
                     labels[:, 2] = 1 - labels[:, 2]
 
         labels_out = torch.zeros((nL, 6))

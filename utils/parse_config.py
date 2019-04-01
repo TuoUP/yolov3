@@ -10,6 +10,7 @@ def parse_model_cfg(path):
             module_defs.append({})
             module_defs[-1]['type'] = line[1:-1].rstrip()
             if module_defs[-1]['type'] == 'convolutional':
+                # @te:this modules set batch_normalize=0 as default. 
                 module_defs[-1]['batch_normalize'] = 0
         else:
             key, value = line.split("=")

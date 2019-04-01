@@ -8,8 +8,10 @@ ONNX_EXPORT = False
 
 def create_modules(module_defs):
     """
-    Constructs module list of layer blocks from module configuration in module_defs
+    Constructs module list of layer blocks 
+    from module configuration in module_defs
     """
+    # @te: return hyperparams in cfg file
     hyperparams = module_defs.pop(0)
     output_filters = [int(hyperparams['channels'])]
     module_list = nn.ModuleList()
@@ -47,6 +49,7 @@ def create_modules(module_defs):
             modules.add_module('upsample_%d' % i, upsample)
 
         elif module_def['type'] == 'route':
+            # layers 
             layers = [int(x) for x in module_def['layers'].split(',')]
             filters = sum([output_filters[i + 1 if i > 0 else i] for i in layers])
             modules.add_module('route_%d' % i, EmptyLayer())
@@ -56,6 +59,7 @@ def create_modules(module_defs):
             modules.add_module('shortcut_%d' % i, EmptyLayer())
 
         elif module_def['type'] == 'yolo':
+            # @te mask is idx :the purpose of mask is divided anchors into 3 groups
             anchor_idxs = [int(x) for x in module_def['mask'].split(',')]
             # Extract anchors
             anchors = [float(x) for x in module_def['anchors'].split(',')]
@@ -64,6 +68,7 @@ def create_modules(module_defs):
             nC = int(module_def['classes'])  # number of classes
             img_size = int(hyperparams['height'])
             # Define detection layer
+            # @te this anchors contains 3 anchor specify for this loyo layer 
             yolo_layer = YOLOLayer(anchors, nC, img_size, yolo_layer_count, cfg=hyperparams['cfg'])
             modules.add_module('yolo_%d' % i, yolo_layer)
             yolo_layer_count += 1
@@ -94,11 +99,17 @@ class Upsample(nn.Module):
         self.mode = mode
 
     def forward(self, x):
+        # ＠te 插值
         return F.interpolate(x, scale_factor=self.scale_factor, mode=self.mode)
 
 
 class YOLOLayer(nn.Module):
     def __init__(self, anchors, nC, img_size, yolo_layer, cfg):
+        """
+        @te
+        :params yolo_layer:　yolo_layer_count start from 0
+
+        """
         super(YOLOLayer, self).__init__()
 
         self.anchors = torch.FloatTensor(anchors)
@@ -106,6 +117,7 @@ class YOLOLayer(nn.Module):
         self.nC = nC  # number of classes (80)
         self.img_size = 0
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # @te 
         create_grids(self, 32, 1, device=device)
 
         if ONNX_EXPORT:  # grids must be computed in __init__
@@ -117,6 +129,12 @@ class YOLOLayer(nn.Module):
             create_grids(self, img_size, nG)
 
     def forward(self, p, img_size, var=None):
+        """
+        @te the params of forward function　is passed when the object of the class
+        is called
+
+        :params p output tensor of layer x shape is (bs,c, h, w) # h,w is feature map's height and width 
+        """
         if ONNX_EXPORT:
             bs, nG = 1, self.nG  # batch size, grid size
         else:
@@ -125,6 +143,7 @@ class YOLOLayer(nn.Module):
                 create_grids(self, img_size, nG, p.device)
 
         # p.view(bs, 255, 13, 13) -- > (bs, 3, 13, 13, 85)  # (bs, anchors, grid, grid, classes + xywh)
+        # @te todo list:why this can be converted 
         p = p.view(bs, self.nA, self.nC + 5, nG, nG).permute(0, 1, 3, 4, 2).contiguous()  # prediction
 
         if self.training:
@@ -140,8 +159,9 @@ class YOLOLayer(nn.Module):
             # p_conf = torch.sigmoid(p[:, 4:5])  # Conf
             # p_cls = F.softmax(p[:, 5:], 1) * p_conf  # SSD-like conf
             # return torch.cat((xy / nG, wh, p_conf, p_cls), 1).t()
-
+            # @te 
             p = p.view(1, -1, 5 + self.nC)
+            # ＠te change shape so grid_xy can broadcast to p
             xy = torch.sigmoid(p[..., 0:2]) + grid_xy  # x, y
             wh = torch.exp(p[..., 2:4]) * anchor_wh  # width, height
             p_conf = torch.sigmoid(p[..., 4:5])  # Conf
@@ -149,6 +169,7 @@ class YOLOLayer(nn.Module):
             # Broadcasting only supported on first dimension in CoreML. See onnx-coreml/_operators.py
             # p_cls = F.softmax(p_cls, 2) * p_conf  # SSD-like conf
             p_cls = torch.exp(p_cls).permute((2, 1, 0))
+            #@te todo list
             p_cls = p_cls / p_cls.sum(0).unsqueeze(0) * p_conf.permute((2, 1, 0))  # F.softmax() equivalent
             p_cls = p_cls.permute(2, 1, 0)
             return torch.cat((xy / nG, wh, p_conf, p_cls), 2).squeeze().t()
@@ -171,6 +192,7 @@ class Darknet(nn.Module):
         super(Darknet, self).__init__()
 
         self.module_defs = parse_model_cfg(cfg_path)
+        # @te self.moudles　is list ,the element of this list is dict
         self.module_defs[0]['cfg'] = cfg_path
         self.module_defs[0]['height'] = img_size
         self.hyperparams, self.module_list = create_modules(self.module_defs)
@@ -194,6 +216,9 @@ class Darknet(nn.Module):
                 layer_i = int(module_def['from'])
                 x = layer_outputs[-1] + layer_outputs[layer_i]
             elif mtype == 'yolo':
+                #@te todo list why moudle[0]? 0 refers to what?
+                #@te if mtype==yolo,moudle should be Yolo Layer  
+                #@te  shape of x --> (bs, anchors, grid, grid, classes + xywh)
                 x = module[0](x, img_size)
                 output.append(x)
             layer_outputs.append(x)
@@ -211,16 +236,24 @@ def get_yolo_layers(model):
 
 
 def create_grids(self, img_size, nG, device='cpu'):
+    """
+    @te this function is 
+    """
+    #@te todo list what is mean img_size=32 nG=1
     self.img_size = img_size
     self.stride = img_size / nG
 
     # build xy offsets
+    # @te grad_x is 2d matrix ,cvt to 4 dims
     grid_x = torch.arange(nG).repeat((nG, 1)).view((1, 1, nG, nG)).float()
+    #　＠te x and y 正交 
     grid_y = grid_x.permute(0, 1, 3, 2)
+    # @te stack(seq, dim=0, out=None) -> Tensor
     self.grid_xy = torch.stack((grid_x, grid_y), 4).to(device)
 
     # build wh gains
     self.anchor_vec = self.anchors.to(device) / self.stride
+    # shape of anchor is (self.nA,2)
     self.anchor_wh = self.anchor_vec.view(1, self.nA, 1, 1, 2).to(device)
     self.nG = torch.FloatTensor([nG]).to(device)
 

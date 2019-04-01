@@ -249,9 +249,15 @@ def wh_iou(box1, box2):
 
 
 def compute_loss(p, targets):  # predictions, targets
+    """
+    @te:compute loss need pay attention
+    :params p shape [gx,gy,num_anchors,num_class+5]
+    :params targets txy, twh, tcls, indices
+    """
     FT = torch.cuda.FloatTensor if p[0].is_cuda else torch.FloatTensor
     loss, lxy, lwh, lcls, lconf = FT([0]), FT([0]), FT([0]), FT([0]), FT([0])
     txy, twh, tcls, indices = targets
+    #@te MSE is 
     MSE = nn.MSELoss()
     CE = nn.CrossEntropyLoss()
     BCE = nn.BCEWithLogitsLoss()
@@ -259,6 +265,8 @@ def compute_loss(p, targets):  # predictions, targets
     # Compute losses
     # gp = [x.numel() for x in tconf]  # grid points
     for i, pi0 in enumerate(p):  # layer i predictions, i
+        #@te indices[i] contains the whole image information ,我的理解是
+        # 包括了
         b, a, gj, gi = indices[i]  # image, anchor, gridx, gridy
         tconf = torch.zeros_like(pi0[..., 0])  # conf
 
@@ -289,14 +297,21 @@ def compute_loss(p, targets):  # predictions, targets
 def build_targets(model, targets):
     # targets = [image, class, x, y, w, h]
     if isinstance(model, nn.parallel.DistributedDataParallel):
+        #@te todo list what is the mean of model.module　
         model = model.module
 
     txy, twh, tcls, indices = [], [], [], []
     for i, layer in enumerate(get_yolo_layers(model)):
+        #@te YOLOLayer has many attibutes,including nG->numbers of grad size 
+        # anchor_vec-> anchor/stride  stride=img_size/nG 
         nG = model.module_list[layer][0].nG  # grid size
         anchor_vec = model.module_list[layer][0].anchor_vec
 
         # iou of targets-anchors
+
+        # @te when loading labels ,labels is converted from xyxy2xyhw and then divided into img_size
+        # @te so when need to * nG ,and anchors  
+        # @te so　anchors = anchor*nG/img_size,and gwh = gwh'*nG/img_size
         gwh = targets[:, 4:6] * nG
         iou = [wh_iou(x, gwh) for x in anchor_vec]
         iou, a = torch.stack(iou, 0).max(0)  # best iou and anchor
@@ -313,6 +328,7 @@ def build_targets(model, targets):
         b, c = t[:, 0:2].long().t()  # target image, class
         gxy = t[:, 2:4] * nG
         gi, gj = gxy.long().t()  # grid_i, grid_j
+        # indices contains target_image,anchors,gi,gj
         indices.append((b, a, gj, gi))
 
         # XY coordinates
@@ -432,6 +448,11 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
 
 
 def get_yolo_layers(model):
+    """
+    @te
+    return the yolo layer
+    """
+    # @te bool_vec 0-1 lists
     bool_vec = [x['type'] == 'yolo' for x in model.module_defs]
     return [i for i, x in enumerate(bool_vec) if x]  # [82, 94, 106] for yolov3
 

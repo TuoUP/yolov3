@@ -22,6 +22,11 @@ def train(
         freeze_backbone=False,
         num_workers=4
 ):
+"""
+@te
+:params cfg:path of cfg file
+:params dat_cfg:path of data_cfg file
+"""
     weights = 'weights' + os.sep
     latest = weights + 'latest.pt'
     best = weights + 'best.pt'
@@ -68,6 +73,7 @@ def train(
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[250], gamma=0.1, last_epoch=start_epoch - 1)
 
     # Dataset
+    # @te this class complete whole stream include preprocess img(augmention),convert label and so on.
     dataset = LoadImagesAndLabels(train_path, img_size=img_size, augment=True)
 
     # Initialize distributed training
@@ -91,6 +97,7 @@ def train(
     nB = len(dataloader)
     t = time.time()
     model_info(model)
+    # @te what this mean
     n_burnin = min(round(nB / 5 + 1), 1000)  # burn-in batches
     for epoch in range(start_epoch, epochs):
         model.train()
@@ -136,6 +143,8 @@ def train(
             pred = model(imgs)
 
             # Build targets
+            # @te target_list contains txy, twh, tcls, indices
+            # @te indices contain shape of anchors,so we can know which layer  
             target_list = build_targets(model, targets)
 
             # Compute loss

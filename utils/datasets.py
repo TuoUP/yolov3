@@ -127,7 +127,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 # @te why only change SV but not change
                 np.clip(S, a_min=0, a_max=255, out=S)
 
-            a = (random. () * 2 - 1) * fraction + 1
+            a = (random.random() * 2 - 1) * fraction + 1
             V *= a
             if a > 1:
                 np.clip(V, a_min=0, a_max=255, out=V)
